@@ -431,6 +431,39 @@
       </section>
 
       <section class="panel">
+        <p class="panel-title">去背設定</p>
+        <label class="safe-toggle" style="margin-top: 0; margin-bottom: 0;">
+          <input type="checkbox" id="bgRemoveEnableCb">
+          啟用去背功能
+        </label>
+        
+        <div id="bgRemoveControls" style="display: none; margin-top: 10px; flex-direction: column; gap: 8px;">
+          <div>
+            <label>去背指定顏色 (HEX色碼)</label>
+            <div class="row">
+              <input type="color" id="bgKeyColorPicker" value="#ffffff" style="width: 42px; min-width: 42px; padding: 0; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; height: 36px;">
+              <input type="text" id="bgKeyColorHex" value="#ffffff" placeholder="#ffffff" style="flex: 1 1 auto; text-transform: uppercase;">
+              <button class="btn btn-outline" id="bgEyeDropperBtn" style="width: 64px; min-height: 36px; padding: 4px 6px; display: none;">吸管</button>
+            </div>
+          </div>
+          
+          <div>
+            <div class="row" style="justify-content: space-between; margin-bottom: 4px;">
+              <label style="margin-bottom: 0;">去背容差 (幅): <span id="bgToleranceVal">30</span></label>
+            </div>
+            <input type="range" id="bgKeyTolerance" min="0" max="200" value="30" style="width: 100%; cursor: pointer;">
+          </div>
+          
+          <div>
+            <div class="row" style="justify-content: space-between; margin-bottom: 4px;">
+              <label style="margin-bottom: 0;">邊緣羽化 (平滑): <span id="bgSmoothingVal">10</span></label>
+            </div>
+            <input type="range" id="bgKeySmoothing" min="0" max="100" value="10" style="width: 100%; cursor: pointer;">
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
         <p class="panel-title">裁切與分割</p>
         <label for="ratioSelect">裁切比例</label>
         <select id="ratioSelect">
@@ -480,11 +513,29 @@
 
     <aside class="preview-sidebar">
       <p class="panel-title">輸出預覽</p>
+      <label for="formatSelect" style="margin-bottom: 4px;">輸出格式</label>
       <select id="formatSelect" aria-label="輸出格式">
         <option value="image/png">PNG</option>
         <option value="image/jpeg">JPG</option>
         <option value="image/webp">WEBP</option>
       </select>
+
+      <div style="margin-top: 10px;">
+        <label for="scaleSelect" style="margin-bottom: 4px;">輸出倍率</label>
+        <select id="scaleSelect">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x (原始尺寸)</option>
+          <option value="1.5">1.5x</option>
+          <option value="2">2x</option>
+          <option value="3">3x</option>
+          <option value="4">4x</option>
+          <option value="custom">自訂倍率</option>
+        </select>
+        <div id="customScaleDiv" style="display: none; margin-top: 6px; align-items: center; gap: 6px;">
+          <input type="number" id="customScaleInput" value="1.0" min="0.1" max="10" step="0.1" style="flex: 1;">
+          <span style="font-size: 12px; font-weight: bold; color: var(--primary-dark);">倍</span>
+        </div>
+      </div>
       <div class="grid-2" id="downloadBtns" style="display: none; margin: 10px 0 14px;">
         <button class="btn btn-success" id="downloadZipBtn">下載 ZIP</button>
         <button class="btn btn-warm" id="downloadPdfBtn">下載 PDF</button>
@@ -517,7 +568,11 @@
       snapLine: null,
       pinchDistance: null,
       projectName: '圖片分割',
-      exports: []
+      exports: [],
+      processedImg: null,
+      bgCanvas: null,
+      checkerPattern: null,
+      previewDirty: true
     };
 
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -561,12 +616,12 @@
       let w = state.crop.w;
       let h = w / ratio;
 
-      if (h > state.img.height * 0.96) {
-        h = state.img.height * 0.96;
+      if (h > state.img.height) {
+        h = state.img.height;
         w = h * ratio;
       }
-      if (w > state.img.width * 0.96) {
-        w = state.img.width * 0.96;
+      if (w > state.img.width) {
+        w = state.img.width;
         h = w / ratio;
       }
 
@@ -642,14 +697,34 @@
       }
 
       const { img, cam, crop } = state;
+      const drawImg = state.processedImg || img;
       ctx.save();
       ctx.translate(cam.x, cam.y);
       ctx.scale(cam.zoom, cam.zoom);
 
-      ctx.drawImage(img, 0, 0);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, img.width, img.height);
+      if ($('bgRemoveEnableCb').checked) {
+        if (!state.checkerPattern) {
+          const pCanvas = document.createElement('canvas');
+          pCanvas.width = 16;
+          pCanvas.height = 16;
+          const pCtx = pCanvas.getContext('2d');
+          pCtx.fillStyle = '#ffffff';
+          pCtx.fillRect(0, 0, 16, 16);
+          pCtx.fillStyle = '#f0f0f0';
+          pCtx.fillRect(0, 0, 8, 8);
+          pCtx.fillRect(8, 8, 8, 8);
+          state.checkerPattern = ctx.createPattern(pCanvas, 'repeat');
+        }
+        ctx.fillStyle = state.checkerPattern;
+        ctx.fillRect(0, 0, img.width, img.height);
+      }
+
+      ctx.drawImage(drawImg, 0, 0);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.56)';
       ctx.fillRect(0, 0, img.width, img.height);
-      ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, crop.x, crop.y, crop.w, crop.h);
+      ctx.drawImage(drawImg, crop.x, crop.y, crop.w, crop.h, crop.x, crop.y, crop.w, crop.h);
 
       if (state.snapLine) {
         ctx.strokeStyle = '#12a6a8';
@@ -707,15 +782,24 @@
     }
 
     function cellBounds(row, col) {
-      const leftRatio = col === 0 ? 0 : state.splitX[col - 1];
-      const rightRatio = col === state.splitX.length ? 1 : state.splitX[col];
-      const topRatio = row === 0 ? 0 : state.splitY[row - 1];
-      const bottomRatio = row === state.splitY.length ? 1 : state.splitY[row];
+      const cols = state.splitX.length + 1;
+      const rows = state.splitY.length + 1;
+      
+      const x0 = Math.round(state.crop.x);
+      const xN = Math.round(state.crop.x + state.crop.w);
+      const y0 = Math.round(state.crop.y);
+      const yN = Math.round(state.crop.y + state.crop.h);
+
+      const left = col === 0 ? x0 : Math.round(state.crop.x + state.splitX[col - 1] * state.crop.w);
+      const right = col === cols - 1 ? xN : Math.round(state.crop.x + state.splitX[col] * state.crop.w);
+      const top = row === 0 ? y0 : Math.round(state.crop.y + state.splitY[row - 1] * state.crop.h);
+      const bottom = row === rows - 1 ? yN : Math.round(state.crop.y + state.splitY[row] * state.crop.h);
+
       return {
-        x: state.crop.x + leftRatio * state.crop.w,
-        y: state.crop.y + topRatio * state.crop.h,
-        w: (rightRatio - leftRatio) * state.crop.w,
-        h: (bottomRatio - topRatio) * state.crop.h
+        x: left,
+        y: top,
+        w: Math.max(1, right - left),
+        h: Math.max(1, bottom - top)
       };
     }
 
@@ -889,18 +973,17 @@
     function setActiveImage(index) {
       state.activeIndex = index;
       state.img = state.images[index];
-      const marginX = state.img.width * 0.1;
-      const marginY = state.img.height * 0.1;
       state.crop = {
-        x: marginX,
-        y: marginY,
-        w: state.img.width - marginX * 2,
-        h: state.img.height - marginY * 2
+        x: 0,
+        y: 0,
+        w: state.img.width,
+        h: state.img.height
       };
       applyRatioFromCenter();
       initSplits();
       renderGallery();
       fitScreen();
+      updateBackgroundRemoval();
     }
 
     function handleFiles(files) {
@@ -964,31 +1047,46 @@
       const cols = state.splitX.length + 1;
       const rows = state.splitY.length + 1;
 
+      const scaleSelect = $('scaleSelect').value;
+      let scale = 1.0;
+      if (scaleSelect === 'custom') {
+        scale = Number.parseFloat($('customScaleInput').value) || 1.0;
+      } else {
+        scale = Number.parseFloat(scaleSelect) || 1.0;
+      }
+
       state.exports = [];
       previewGrid.innerHTML = '';
 
       for (let row = 0; row < rows; row += 1) {
         for (let col = 0; col < cols; col += 1) {
           const cell = cellBounds(row, col);
-          const sx = Math.round(cell.x);
-          const sy = Math.round(cell.y);
-          const sw = Math.max(1, Math.round(cell.w));
-          const sh = Math.max(1, Math.round(cell.h));
+          const sx = cell.x;
+          const sy = cell.y;
+          const sw = cell.w;
+          const sh = cell.h;
+
+          const outW = Math.max(1, Math.round(sw * scale));
+          const outH = Math.max(1, Math.round(sh * scale));
+
           const outCanvas = document.createElement('canvas');
-          outCanvas.width = sw;
-          outCanvas.height = sh;
+          outCanvas.width = outW;
+          outCanvas.height = outH;
 
           const outCtx = outCanvas.getContext('2d');
+          outCtx.imageSmoothingEnabled = true;
+          outCtx.imageSmoothingQuality = 'high';
+
           if (format === 'image/jpeg') {
             outCtx.fillStyle = '#ffffff';
-            outCtx.fillRect(0, 0, sw, sh);
+            outCtx.fillRect(0, 0, outW, outH);
           }
-          outCtx.drawImage(state.img, sx, sy, sw, sh, 0, 0, sw, sh);
+          outCtx.drawImage(state.processedImg || state.img, sx, sy, sw, sh, 0, 0, outW, outH);
 
-          const dataUrl = outCanvas.toDataURL(format, 0.92);
-          const dims = `${sw}x${sh}`;
+          const dataUrl = outCanvas.toDataURL(format, 1.0);
+          const dims = `${outW}x${outH}`;
           const fileName = `${sanitizeFileName(state.projectName)}_R${row + 1}_C${col + 1}_${dims}.${extension}`;
-          state.exports.push({ name: fileName, dataUrl, base64: dataUrl.split(',')[1], w: sw, h: sh, format });
+          state.exports.push({ name: fileName, dataUrl, base64: dataUrl.split(',')[1], w: outW, h: outH, format });
 
           const item = document.createElement('button');
           item.type = 'button';
@@ -1007,6 +1105,7 @@
       }
 
       $('downloadBtns').style.display = 'grid';
+      state.previewDirty = false;
     }
 
     function downloadBlob(blob, fileName) {
@@ -1021,6 +1120,16 @@
     }
 
     async function downloadZip() {
+      if (!state.img) {
+        alert('請先載入圖片。');
+        return;
+      }
+      const cols = state.splitX.length + 1;
+      const rows = state.splitY.length + 1;
+      const expectedCount = cols * rows;
+      if (state.previewDirty || state.exports.length !== expectedCount) {
+        generatePreview();
+      }
       if (!state.exports.length) return;
       const zip = new JSZip();
       state.exports.forEach((file) => zip.file(file.name, file.base64, { base64: true }));
@@ -1029,6 +1138,16 @@
     }
 
     function downloadPdf() {
+      if (!state.img) {
+        alert('請先載入圖片。');
+        return;
+      }
+      const cols = state.splitX.length + 1;
+      const rows = state.splitY.length + 1;
+      const expectedCount = cols * rows;
+      if (state.previewDirty || state.exports.length !== expectedCount) {
+        generatePreview();
+      }
       if (!state.exports.length) return;
       const { jsPDF } = window.jspdf;
       let pdf = null;
@@ -1076,12 +1195,24 @@
       if (files.length) handleFiles(files);
     });
 
-    $('colsInput').addEventListener('change', () => { initSplits(); draw(); });
-    $('rowsInput').addEventListener('change', () => { initSplits(); draw(); });
+    $('colsInput').addEventListener('change', () => {
+      initSplits();
+      draw();
+      state.previewDirty = true;
+      if (state.img) generatePreview();
+    });
+    $('rowsInput').addEventListener('change', () => {
+      initSplits();
+      draw();
+      state.previewDirty = true;
+      if (state.img) generatePreview();
+    });
     $('ratioSelect').addEventListener('change', () => {
       state.projectName = '圖片分割';
       applyRatioFromCenter();
       draw();
+      state.previewDirty = true;
+      if (state.img) generatePreview();
     });
     $('safeZoneCb').addEventListener('change', draw);
     $('aiBtn').addEventListener('click', applySmartPreset);
@@ -1111,10 +1242,15 @@
       else updateCursor(event);
     });
     window.addEventListener('mouseup', () => {
+      const hadDrag = !!state.drag;
       state.drag = null;
       state.snapLine = null;
       canvas.style.cursor = 'crosshair';
       draw();
+      if (hadDrag && state.img) {
+        state.previewDirty = true;
+        generatePreview();
+      }
     });
     canvas.addEventListener('wheel', (event) => {
       if (!state.img) return;
@@ -1164,15 +1300,179 @@
     }, { passive: false });
 
     canvas.addEventListener('touchend', () => {
+      const hadDrag = !!state.drag;
       state.drag = null;
       state.snapLine = null;
       state.pinchDistance = null;
       draw();
+      if (hadDrag && state.img) {
+        state.previewDirty = true;
+        generatePreview();
+      }
     });
 
     window.addEventListener('resize', () => {
       if (state.img) fitScreen();
       else draw();
+    });
+
+    function hexToRgb(hex) {
+      const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+      const fullHex = hex.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b);
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : null;
+    }
+
+    function rgbToHex(r, g, b) {
+      return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+
+    function processBackgroundRemoval() {
+      if (!state.img) return;
+
+      const enabled = $('bgRemoveEnableCb').checked;
+      if (!enabled) {
+        state.processedImg = state.img;
+        return;
+      }
+
+      const targetHex = $('bgKeyColorHex').value.trim();
+      const rgb = hexToRgb(targetHex);
+      if (!rgb) {
+        state.processedImg = state.img;
+        return;
+      }
+
+      const tolerance = Number.parseInt($('bgKeyTolerance').value, 10) || 0;
+      const smoothing = Number.parseInt($('bgKeySmoothing').value, 10) || 0;
+
+      if (!state.bgCanvas) {
+        state.bgCanvas = document.createElement('canvas');
+      }
+      const canvas = state.bgCanvas;
+      if (canvas.width !== state.img.width || canvas.height !== state.img.height) {
+        canvas.width = state.img.width;
+        canvas.height = state.img.height;
+      }
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(state.img, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      const { r: tr, g: tg, b: tb } = rgb;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+
+        if (a === 0) continue;
+
+        const dist = Math.sqrt((r - tr) ** 2 + (g - tg) ** 2 + (b - tb) ** 2);
+
+        if (dist < tolerance) {
+          data[i + 3] = 0;
+        } else if (dist < tolerance + smoothing) {
+          const fraction = (dist - tolerance) / (smoothing || 1);
+          data[i + 3] = Math.min(a, Math.round(fraction * 255));
+        }
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      state.processedImg = canvas;
+    }
+
+    function updateBackgroundRemoval() {
+      processBackgroundRemoval();
+      draw();
+      state.previewDirty = true;
+      if (state.img) {
+        generatePreview();
+      }
+    }
+
+    // Bind BG Removal Events
+    $('bgRemoveEnableCb').addEventListener('change', () => {
+      const enabled = $('bgRemoveEnableCb').checked;
+      $('bgRemoveControls').style.display = enabled ? 'flex' : 'none';
+      updateBackgroundRemoval();
+    });
+
+    $('bgKeyColorPicker').addEventListener('input', (event) => {
+      const color = event.target.value;
+      $('bgKeyColorHex').value = color;
+      updateBackgroundRemoval();
+    });
+
+    $('bgKeyColorHex').addEventListener('input', (event) => {
+      let hex = event.target.value.trim();
+      if (!hex.startsWith('#') && hex.length === 6) {
+        hex = '#' + hex;
+      }
+      if (/^#[0-9A-F]{6}$/i.test(hex)) {
+        $('bgKeyColorPicker').value = hex;
+        updateBackgroundRemoval();
+      }
+    });
+
+    $('bgKeyTolerance').addEventListener('input', (event) => {
+      const val = event.target.value;
+      $('bgToleranceVal').textContent = val;
+      updateBackgroundRemoval();
+    });
+
+    $('bgKeySmoothing').addEventListener('input', (event) => {
+      const val = event.target.value;
+      $('bgSmoothingVal').textContent = val;
+      updateBackgroundRemoval();
+    });
+
+    // Check Eyedropper API availability
+    if (window.EyeDropper) {
+      const eyeBtn = $('bgEyeDropperBtn');
+      eyeBtn.style.display = 'block';
+      eyeBtn.addEventListener('click', async () => {
+        const eyeDropper = new EyeDropper();
+        try {
+          const result = await eyeDropper.open();
+          const hex = result.sRGBHex;
+          $('bgKeyColorHex').value = hex;
+          $('bgKeyColorPicker').value = hex;
+          updateBackgroundRemoval();
+        } catch (e) {
+          console.log('吸管工具取消或錯誤:', e);
+        }
+      });
+    }
+
+    // Scale binding events
+    $('scaleSelect').addEventListener('change', () => {
+      const isCustom = $('scaleSelect').value === 'custom';
+      $('customScaleDiv').style.display = isCustom ? 'flex' : 'none';
+      state.previewDirty = true;
+      if (state.img) {
+        generatePreview();
+      }
+    });
+
+    $('customScaleInput').addEventListener('input', () => {
+      state.previewDirty = true;
+      if (state.img) {
+        generatePreview();
+      }
+    });
+
+    $('formatSelect').addEventListener('change', () => {
+      state.previewDirty = true;
+      if (state.img) {
+        generatePreview();
+      }
     });
 
     initSplits();
